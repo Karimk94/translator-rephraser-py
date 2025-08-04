@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Writing Assistant</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>AI Writing Assistant</h1>
+        <p class="subtitle">Translate or rephrase your text instantly</p>
+        
+        <div class="input-area">
+            <textarea id="text-input" rows="7" placeholder="Enter English or Arabic text..."></textarea>
+        </div>
+        
+        <!-- Action Buttons -->
+        <div id="action-buttons-container" class="action-buttons">
+            <button type="button" class="action-btn" data-task="translate">Translate</button>
+            <button type="button" class="action-btn" data-task="rephrase">Rephrase</button>
+        </div>
+        <div id="stop-button-container" class="action-buttons" style="display: none;">
+            <button type="button" id="stop-button" class="action-btn stop-btn">Stop Generating</button>
+        </div>
+
+        <!-- Loading Spinner -->
+        <div id="spinner" class="spinner-container" style="display: none;">
+            <div class="spinner"></div>
+        </div>
+
+        <!-- Results Area -->
+        <div id="result-section" class="result-section" style="display: none;">
+            <!-- A single result card will be dynamically added here -->
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
