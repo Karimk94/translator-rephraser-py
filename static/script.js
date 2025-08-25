@@ -83,7 +83,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error('Generation error:', error);
             }
         } finally {
-            // --- FIX: Always reset the UI loading state ---
             setUiLoading(false); 
         }
     };

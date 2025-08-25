@@ -17,7 +17,7 @@ except ImportError as e:
 MODELS_TO_DOWNLOAD = {
     "local_model_en_ar": "Helsinki-NLP/opus-mt-en-ar",
     "local_model_ar_en": "Helsinki-NLP/opus-mt-ar-en",
-    "local_model_rephrase_en": "tuner007/pegasus_paraphrase",
+    "local_model_rephrase_en": "google/gemma-3-1b-it",
 }
 
 def download_model(model_name, save_directory):
@@ -33,9 +33,8 @@ def download_model(model_name, save_directory):
         tokenizer.save_pretrained(save_directory)
 
         # Download and save the model
-        # The rephrasing model uses a different class, so we handle that here.
-        if "pegasus" in model_name:
-            model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+        if "gemma" in model_name:
+            model = AutoModelForCausalLM.from_pretrained(model_name)
         else:
             model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
         

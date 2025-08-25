@@ -1,10 +1,10 @@
-# app.py
 from flask import Flask, render_template, request, Response
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, PegasusForConditionalGeneration, PegasusTokenizer, TextIteratorStreamer
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, AutoModelForCausalLM, TextIteratorStreamer
 from threading import Thread
 import os
 import re
 import time
+from werkzeug.serving import run_simple
 
 app = Flask(__name__)
 
@@ -13,7 +13,7 @@ MODELS = {}
 MODEL_CONFIG = {
     "translate_en_ar": {"path": "./local_model_en_ar", "local": True},
     "translate_ar_en": {"path": "./local_model_ar_en", "local": True},
-    "rephrase_en":     {"path": "tuner007/pegasus_paraphrase", "local": False},
+    "rephrase_en":     {"path": "./local_model_rephrase_en", "local": True},
 }
 
 def load_models():
@@ -29,8 +29,8 @@ def load_models():
         print(f"Loading model: {name}...")
         
         if "rephrase_en" in name:
-            tokenizer = PegasusTokenizer.from_pretrained(path)
-            model = PegasusForConditionalGeneration.from_pretrained(path)
+            tokenizer = AutoTokenizer.from_pretrained(path)
+            model = AutoModelForCausalLM.from_pretrained(path)
         else:
             tokenizer = AutoTokenizer.from_pretrained(path)
             model = AutoModelForSeq2SeqLM.from_pretrained(path)
@@ -65,7 +65,7 @@ def generate():
                 tokenizer = MODELS[model_key]["tokenizer"]
                 model = MODELS[model_key]["model"]
                 inputs = tokenizer(original_text, return_tensors="pt")
-                # --- FIX: Removed do_sample=True which can conflict with beam search and cause warnings ---
+
                 outputs = model.generate(
                     **inputs, max_length=250, num_beams=5, early_stopping=True
                 )
@@ -86,13 +86,29 @@ def generate():
                     final1 = ar_model.generate(**inputs_back1, max_length=250, num_beams=5)
                     decoded_output = ar_tokenizer.decode(final1[0], skip_special_tokens=True)
                 else: 
+                    # For English, use the Gemma model
                     use_live_streamer = True
                     model_key = "rephrase_en"
                     tokenizer = MODELS[model_key]["tokenizer"]
                     model = MODELS[model_key]["model"]
-                    inputs = tokenizer(original_text, return_tensors="pt")
+                    
+                    # Create a prompt for rephrasing
+                    prompt = f"""Rewrite the following text into a single, clear, and natural sentence.
+
+**Instructions:**
+1. Identify the specific names listed after "VIPs:".
+2. Make these individuals the primary subject of the new sentence.
+3. Replace generic nouns like 'man' or 'person' with these names.
+4. Incorporate the described actions (e.g., 'sitting on a bench') and surrounding objects (e.g., 'bottle') naturally.
+5. Omit all labels and unnecessary words like "VIPs:", "and also", and "person.".
+
+**Text to rewrite:**
+"{original_text}"
+"""
+                    inputs = tokenizer(prompt, return_tensors="pt")
+
                     generation_kwargs = dict(
-                        inputs, max_length=100, do_sample=True, top_k=120, top_p=0.95, temperature=1.5, num_beams=1
+                        **inputs, max_new_tokens=100, do_sample=True, top_k=120, top_p=0.95, temperature=1.5
                     )
             else:
                 yield "data: [ERROR]\n\n"
@@ -123,4 +139,12 @@ def index():
     return render_template('index.html')
 
 if __name__ == '__main__':
-    app.run(debug=True, threaded=True)
+    run_simple(
+        '127.0.0.1',
+        5005,
+        app,
+        use_reloader=False,
+        use_debugger=True,
+        threaded=True,
+        exclude_patterns=['*__pycache__*', '*venv*', '*local_model_ar_en*','*local_model_en_ar*','*local_model_rephrase_en*']
+    )
