@@ -1,139 +1,142 @@
 from flask import Flask, render_template, request, Response
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, AutoModelForCausalLM, TextIteratorStreamer
+from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 from threading import Thread
 import os
 import re
-import time
 from werkzeug.serving import run_simple
+import time
 
 app = Flask(__name__)
 
 # --- Model Loading ---
-MODELS = {}
-MODEL_CONFIG = {
-    "translate_en_ar": {"path": "./local_model_en_ar", "local": True},
-    "translate_ar_en": {"path": "./local_model_ar_en", "local": True},
-    "rephrase_en":     {"path": "./local_model_rephrase_en", "local": True},
-}
+MODEL = {}
+MODEL_PATH = "./local_gemma_finetuned" 
 
-def load_models():
-    """Loads all models into the MODELS dictionary."""
-    for name, config in MODEL_CONFIG.items():
-        path = config["path"]
-        
-        if config["local"] and not os.path.isdir(path):
-            print(f"--- ERROR: Model directory not found at '{path}' ---")
-            print("Please run 'download_model.py' first.")
-            exit()
-        
-        print(f"Loading model: {name}...")
-        
-        if "rephrase_en" in name:
-            tokenizer = AutoTokenizer.from_pretrained(path)
-            model = AutoModelForCausalLM.from_pretrained(path)
-        else:
-            tokenizer = AutoTokenizer.from_pretrained(path)
-            model = AutoModelForSeq2SeqLM.from_pretrained(path)
-        
-        MODELS[name] = {"tokenizer": tokenizer, "model": model}
-    print("All models loaded successfully!")
+def load_model():
+    """Loads the fine-tuned Gemma model and tokenizer."""
+    if not os.path.isdir(MODEL_PATH):
+        print(f"--- ERROR: Model directory not found at '{MODEL_PATH}' ---")
+        print("Please run 'fine_tune.py' and 'merge_model.py' first.")
+        exit()
+    
+    print("Loading fine-tuned Gemma model...")
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
+    model = AutoModelForCausalLM.from_pretrained(
+        MODEL_PATH,
+        device_map="auto"
+    )
+    MODEL["tokenizer"] = tokenizer
+    MODEL["model"] = model
+    print("Fine-tuned model loaded successfully!")
 
-load_models()
+load_model()
 
 def is_arabic(text):
     """Detects if the text contains a significant number of Arabic characters."""
     if not text or not isinstance(text, str):
         return False
-    arabic_chars = len(re.findall(r'[\u0600-\u06FF]', text))
-    total_chars = len(text)
-    return (arabic_chars / total_chars) > 0.1 if total_chars > 0 else False
+    return bool(re.search('[\u0600-\u06FF]', text))
 
+def create_prompt(text, task, source_lang):
+    """Creates a specific prompt for the given task and language, formatted for Gemma-3-1B-IT."""
+    if task == 'translate':
+        target_lang = "Arabic" if source_lang == "English" else "English"
+    
+        system_message = f"""<start_of_turn>user
+You are a direct translation engine. Your task is to translate the provided {source_lang} text to {target_lang}.
+
+Follow these rules exactly:
+1. Your response MUST contain ONLY the translated text.
+2. Do NOT add any comments, explanations, or introductory phrases.
+3. **CRITICAL**: You MUST convert every single {source_lang} word and name into the {target_lang} alphabet. Your final output must not contain any {source_lang} characters.
+
+### EXAMPLE ###
+{source_lang} Text: "a man sitting on a bench. VIPs : Sheikh Mohammed Bin Zayed Al Nahyan, Sheikh Mohammed Bin Rashid Al Maktoum, Mattar Al Tayer"
+{target_lang} Text:  "رجل يجلس على مقعد. الشخصيات المهمة: الشيخ محمد بن زايد، الشيخ محمد بن راشد آل مكتوم، مطر الطاير"
+
+### TASK ###
+{source_lang} Text: "{text}"<end_of_turn>
+<start_of_turn>model
+"""
+        return system_message
+        
+    elif task == 'rephrase':
+        return f"""<start_of_turn>user
+Rephrase this {source_lang} text creatively:
+
+"{text}"<end_of_turn>
+<start_of_turn>model
+"""
+    return text
 # --- Generation Logic ---
+
 @app.route('/generate', methods=['POST'])
 def generate():
     data = request.get_json()
     original_text = data.get('text', '')
     task = data.get('task', 'translate')
+    tokenizer = MODEL["tokenizer"]
+    model = MODEL["model"]
+    source_language = "Arabic" if is_arabic(original_text) else "English"
+    prompt = create_prompt(original_text, task, source_language)
+    
+    # Tokenize the entire prompt
+    inputs = tokenizer(prompt, return_tensors="pt", return_attention_mask=False)
 
-    def stream_generator():
-        try:
-            use_live_streamer = False
-            decoded_output = ""
-
-            if task == 'translate':
-                model_key = "translate_ar_en" if is_arabic(original_text) else "translate_en_ar"
-                tokenizer = MODELS[model_key]["tokenizer"]
-                model = MODELS[model_key]["model"]
-                inputs = tokenizer(original_text, return_tensors="pt")
-
+    if task == 'translate':
+        def translation_generator():
+            try:
+                # Generate only the response (after the prompt)
                 outputs = model.generate(
-                    **inputs, max_length=250, num_beams=5, early_stopping=True
+                    **inputs,
+                    max_new_tokens=100,
+                    num_beams=5,
+                    do_sample=False,
+                    pad_token_id=tokenizer.eos_token_id
                 )
-                decoded_output = tokenizer.decode(outputs[0], skip_special_tokens=True)
-
-            elif task == 'rephrase':
-                if is_arabic(original_text):
-                    en_tokenizer = MODELS["translate_ar_en"]["tokenizer"]
-                    en_model = MODELS["translate_ar_en"]["model"]
-                    ar_tokenizer = MODELS["translate_en_ar"]["tokenizer"]
-                    ar_model = MODELS["translate_en_ar"]["model"]
-                    
-                    inputs1 = en_tokenizer(original_text, return_tensors="pt")
-                    intermediate1 = en_model.generate(**inputs1, num_beams=5, do_sample=True, top_k=50)
-                    english_text1 = en_tokenizer.decode(intermediate1[0], skip_special_tokens=True)
-                    
-                    inputs_back1 = ar_tokenizer(english_text1, return_tensors="pt")
-                    final1 = ar_model.generate(**inputs_back1, max_length=250, num_beams=5)
-                    decoded_output = ar_tokenizer.decode(final1[0], skip_special_tokens=True)
-                else: 
-                    # For English, use the Gemma model
-                    use_live_streamer = True
-                    model_key = "rephrase_en"
-                    tokenizer = MODELS[model_key]["tokenizer"]
-                    model = MODELS[model_key]["model"]
-                    
-                    # Create a prompt for rephrasing
-                    prompt = f"""Rewrite the following text into a single, clear, and natural sentence.
-
-**Instructions:**
-1. Identify the specific names listed after "VIPs:".
-2. Make these individuals the primary subject of the new sentence.
-3. Replace generic nouns like 'man' or 'person' with these names.
-4. Incorporate the described actions (e.g., 'sitting on a bench') and surrounding objects (e.g., 'bottle') naturally.
-5. Omit all labels and unnecessary words like "VIPs:", "and also", and "person.".
-
-**Text to rewrite:**
-"{original_text}"
-"""
-                    inputs = tokenizer(prompt, return_tensors="pt")
-
-                    generation_kwargs = dict(
-                        **inputs, max_new_tokens=100, do_sample=True, top_k=120, top_p=0.95, temperature=1.5
-                    )
-            else:
+                
+                # Decode only the NEW tokens (not the prompt)
+                new_tokens = outputs[0][inputs.input_ids.shape[1]:]
+                translated_text = tokenizer.decode(new_tokens, skip_special_tokens=True)
+                
+                # Clean up any special tokens
+                translated_text = translated_text.replace("<end_of_turn>", "").strip()
+                
+                # Simulate streaming
+                for char in translated_text:
+                    yield f"data: {char}\n\n"
+                    time.sleep(0.01)
+                
+                yield "data: [END_OF_STREAM]\n\n"
+                
+            except Exception as e:
+                print(f"Error during translation generation: {e}")
                 yield "data: [ERROR]\n\n"
-                return
+        return Response(translation_generator(), mimetype='text/event-stream')
 
-            if use_live_streamer:
+    else: # task == 'rephrase'
+        def rephrase_streamer():
+            try:
                 streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
-                generation_kwargs['streamer'] = streamer
+                generation_kwargs = dict(
+                    **inputs,
+                    streamer=streamer,
+                    max_new_tokens=250,
+                    do_sample=True,
+                    top_k=50,
+                    top_p=0.95,
+                    temperature=0.8
+                )
                 thread = Thread(target=model.generate, kwargs=generation_kwargs)
                 thread.start()
                 for new_text in streamer:
                     yield f"data: {new_text}\n\n"
-            else:
-                for char in decoded_output:
-                    yield f"data: {char}\n\n"
-                    time.sleep(0.01)
-            
-            yield "data: [END_OF_STREAM]\n\n"
-
-        except Exception as e:
-            print(f"Error during stream generation: {e}")
-            yield f"data: [ERROR]\n\n"
-
-    return Response(stream_generator(), mimetype='text/event-stream')
-
+                yield "data: [END_OF_STREAM]\n\n"
+            except Exception as e:
+                print(f"Error during rephrase generation: {e}")
+                yield "data: [ERROR]\n\n"
+        return Response(rephrase_streamer(), mimetype='text/event-stream')
+    
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -146,5 +149,5 @@ if __name__ == '__main__':
         use_reloader=False,
         use_debugger=True,
         threaded=True,
-        exclude_patterns=['*__pycache__*', '*venv*', '*local_model_ar_en*','*local_model_en_ar*','*local_model_rephrase_en*']
+        exclude_patterns=['*__pycache__*', '*venv*', '*local_gemma_model*']
     )

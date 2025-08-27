@@ -1,6 +1,5 @@
-/local_model
-/local_model_ar_en
-/local_model_en_ar
-/local_model_rephrase_en
+/local*
 /__pycache__
 /venv
+/gemma-translator-adapter
+/results
