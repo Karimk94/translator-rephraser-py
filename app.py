@@ -62,10 +62,20 @@ Follow these rules exactly:
         
     elif task == 'rephrase':
         return f"""<start_of_turn>user
-Rephrase this {source_lang} text creatively:
+You are a JSON output machine. Your only function is to output a specific JSON structure. Follow these steps exactly:
 
-"{text}"<end_of_turn>
+1.  Analyze this text: "{text}"
+2.  Extract key nouns, entities, and concepts for use as search tags.
+3.  Remove all stop words, non-essential words, and duplicate entries.
+4.  Translate the final list of English tags into Modern Standard Arabic.
+5.  Output **NOTHING** except for the completed JSON structure below. Do not use markdown. Do not add ```json. Do not add any other text.
+
+COPY AND PASTE THIS TEMPLATE, THEN FILL IT IN:
+{{"english_tags": [], "arabic_tags": []}}
+
+Your entire response must be only the filled-out template.<end_of_turn>
 <start_of_turn>model
+
 """
     return text
 # --- Generation Logic ---
