@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, Response
+from flask_cors import CORS
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 from threading import Thread
 import os
@@ -7,6 +8,8 @@ from werkzeug.serving import run_simple
 import time
 
 app = Flask(__name__)
+
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # --- Model Loading ---
 MODEL = {}
