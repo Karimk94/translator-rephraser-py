@@ -5,7 +5,6 @@ from threading import Thread
 import os
 import re
 from werkzeug.serving import run_simple
-import time
 
 app = Flask(__name__)
 
@@ -53,10 +52,6 @@ Follow these rules exactly:
 2. Do NOT add any comments, explanations, or introductory phrases.
 3. **CRITICAL**: You MUST convert every single {source_lang} word and name into the {target_lang} alphabet. Your final output must not contain any {source_lang} characters.
 
-### EXAMPLE ###
-{source_lang} Text: "a man sitting on a bench. VIPs : Sheikh Mohammed Bin Zayed Al Nahyan, Sheikh Mohammed Bin Rashid Al Maktoum, Mattar Al Tayer"
-{target_lang} Text:  "رجل يجلس على مقعد. الشخصيات المهمة: الشيخ محمد بن زايد، الشيخ محمد بن راشد آل مكتوم، مطر الطاير"
-
 ### TASK ###
 {source_lang} Text: "{text}"<end_of_turn>
 <start_of_turn>model
@@ -68,17 +63,16 @@ Follow these rules exactly:
 You are a JSON output machine. Your only function is to output a specific JSON structure. Follow these steps exactly:
 
 1.  Analyze this text: "{text}"
-2.  Extract key nouns, entities, and concepts for use as search tags.
-3.  Remove all stop words, non-essential words, and duplicate entries.
-4.  Translate the final list of English tags into Modern Standard Arabic.
+2.  Extract the key nouns, entities, and concepts for use as search tags.
+3.  **Correct any spelling errors and standardize abbreviations.**
+4.  Remove all stop words, non-essential words, and duplicate entries.
 5.  Output **NOTHING** except for the completed JSON structure below. Do not use markdown. Do not add ```json. Do not add any other text.
 
 COPY AND PASTE THIS TEMPLATE, THEN FILL IT IN:
-{{"english_tags": [], "arabic_tags": []}}
+{{"english_tags": []}}
 
 Your entire response must be only the filled-out template.<end_of_turn>
 <start_of_turn>model
-
 """
     return text
 # --- Generation Logic ---
@@ -93,62 +87,40 @@ def generate():
     source_language = "Arabic" if is_arabic(original_text) else "English"
     prompt = create_prompt(original_text, task, source_language)
     
-    # Tokenize the entire prompt
     inputs = tokenizer(prompt, return_tensors="pt", return_attention_mask=False)
+    inputs = inputs.to(model.device)
 
-    if task == 'translate':
-        def translation_generator():
-            try:
-                # Generate only the response (after the prompt)
-                outputs = model.generate(
-                    **inputs,
-                    max_new_tokens=100,
-                    num_beams=5,
-                    do_sample=False,
-                    pad_token_id=tokenizer.eos_token_id
-                )
-                
-                # Decode only the NEW tokens (not the prompt)
-                new_tokens = outputs[0][inputs.input_ids.shape[1]:]
-                translated_text = tokenizer.decode(new_tokens, skip_special_tokens=True)
-                
-                # Clean up any special tokens
-                translated_text = translated_text.replace("<end_of_turn>", "").strip()
-                
-                # Simulate streaming
-                for char in translated_text:
-                    yield f"data: {char}\n\n"
-                    time.sleep(0.01)
-                
-                yield "data: [END_OF_STREAM]\n\n"
-                
-            except Exception as e:
-                print(f"Error during translation generation: {e}")
-                yield "data: [ERROR]\n\n"
-        return Response(translation_generator(), mimetype='text/event-stream')
+    def generator():
+        try:
+            streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+            
+            gen_kwargs = {
+                "input_ids": inputs.input_ids,
+                "streamer": streamer,
+                "max_new_tokens": 250,
+                "do_sample": True,
+                "top_k": 50,
+                "top_p": 0.95,
+                "temperature": 0.8,
+                "pad_token_id": tokenizer.eos_token_id
+            }
+            if task == 'translate':
+                gen_kwargs['do_sample'] = False
+                gen_kwargs['max_new_tokens'] = 100
 
-    else: # task == 'rephrase'
-        def rephrase_streamer():
-            try:
-                streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
-                generation_kwargs = dict(
-                    **inputs,
-                    streamer=streamer,
-                    max_new_tokens=250,
-                    do_sample=True,
-                    top_k=50,
-                    top_p=0.95,
-                    temperature=0.8
-                )
-                thread = Thread(target=model.generate, kwargs=generation_kwargs)
-                thread.start()
-                for new_text in streamer:
-                    yield f"data: {new_text}\n\n"
-                yield "data: [END_OF_STREAM]\n\n"
-            except Exception as e:
-                print(f"Error during rephrase generation: {e}")
-                yield "data: [ERROR]\n\n"
-        return Response(rephrase_streamer(), mimetype='text/event-stream')
+
+            thread = Thread(target=model.generate, kwargs=gen_kwargs)
+            thread.start()
+
+            for new_text in streamer:
+                yield f"data: {new_text}\n\n"
+            yield "data: [END_OF_STREAM]\n\n"
+
+        except Exception as e:
+            print(f"Error during generation: {e}")
+            yield "data: [ERROR]\n\n"
+
+    return Response(generator(), mimetype='text/event-stream')
     
 @app.route('/')
 def index():
