@@ -87,7 +87,7 @@ def generate():
     source_language = "Arabic" if is_arabic(original_text) else "English"
     prompt = create_prompt(original_text, task, source_language)
     
-    inputs = tokenizer(prompt, return_tensors="pt", return_attention_mask=False)
+    inputs = tokenizer(prompt, return_tensors="pt") 
     inputs = inputs.to(model.device)
 
     def generator():
@@ -96,12 +96,11 @@ def generate():
             
             gen_kwargs = {
                 "input_ids": inputs.input_ids,
+                "attention_mask": inputs.attention_mask,
                 "streamer": streamer,
                 "max_new_tokens": 250,
                 "do_sample": True,
                 "top_k": 50,
-                "top_p": 0.95,
-                "temperature": 0.8,
                 "pad_token_id": tokenizer.eos_token_id
             }
             if task == 'translate':
