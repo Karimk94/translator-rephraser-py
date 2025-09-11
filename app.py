@@ -24,8 +24,7 @@ def load_model():
     print("Loading fine-tuned Gemma model...")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
     model = AutoModelForCausalLM.from_pretrained(
-        MODEL_PATH,
-        device_map="auto"
+        MODEL_PATH
     )
     MODEL["tokenizer"] = tokenizer
     MODEL["model"] = model
