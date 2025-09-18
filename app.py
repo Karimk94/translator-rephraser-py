@@ -4,7 +4,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStream
 from threading import Thread
 import os
 import re
-from werkzeug.serving import run_simple
+from waitress import serve
 
 app = Flask(__name__)
 
@@ -125,12 +125,4 @@ def index():
     return render_template('index.html')
 
 if __name__ == '__main__':
-    run_simple(
-        '127.0.0.1',
-        5005,
-        app,
-        use_reloader=False,
-        use_debugger=True,
-        threaded=True,
-        exclude_patterns=['*__pycache__*', '*venv*', '*local_gemma_model*']
-    )
+    serve(app, host='127.0.0.1', port=5005, threads=100)
