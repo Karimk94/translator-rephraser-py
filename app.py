@@ -24,17 +24,24 @@ def create_prompt(text, task, source_lang):
         target_lang = "Arabic" if source_lang == "English" else "English"
         
         diacritics_rule = ""
+        other_rules = ""
+
         if target_lang == "Arabic":
-            diacritics_rule = "4. **CRITICAL**: Do NOT include any Arabic diacritics (Tashkeel / formations). The output must be plain Arabic text without any vowel markings."
+            diacritics_rule = "1. **ABSOLUTELY CRITICAL**: Your response must NOT contain any Arabic diacritics (Tashkeel / formations). The output must be plain, simple Arabic text without any vowel markings."
+            other_rules = f"""2. Your response MUST contain ONLY the translated text.
+3. Do NOT add any comments, explanations, or introductory phrases.
+4. **CRITICAL**: You MUST convert every single {source_lang} word and name into the {target_lang} alphabet. Your final output must not contain any {source_lang} characters."""
+        else:
+            other_rules = f"""1. Your response MUST contain ONLY the translated text.
+2. Do NOT add any comments, explanations, or introductory phrases.
+3. **CRITICAL**: You MUST convert every single {source_lang} word and name into the {target_lang} alphabet. Your final output must not contain any {source_lang} characters."""
 
         system_message = f"""<start_of_turn>user
 You are a direct translation engine. Your task is to translate the provided {source_lang} text to {target_lang}.
 
 Follow these rules exactly:
-1. Your response MUST contain ONLY the translated text.
-2. Do NOT add any comments, explanations, or introductory phrases.
-3. **CRITICAL**: You MUST convert every single {source_lang} word and name into the {target_lang} alphabet. Your final output must not contain any {source_lang} characters.
 {diacritics_rule}
+{other_rules}
 
 ### TASK ###
 {source_lang} Text: "{text}"<end_of_turn>
@@ -64,7 +71,6 @@ Your entire response must be only the filled-out template.<end_of_turn>
 <start_of_turn>model
 """
     return text
-
 @app.route('/generate', methods=['POST'])
 def generate():
     data = request.get_json()
