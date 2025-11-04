@@ -3,3 +3,5 @@
 /venv
 /gemma-translator-adapter
 /results
+logs/stderr.log
+logs/stdout.log
