@@ -18,8 +18,21 @@ def is_arabic(text):
         return False
     return bool(re.search('[\u0600-\u06FF]', text))
 
+def remove_diacritics(text):
+    """
+    NEW FUNCTION: Removes all Arabic diacritics (Tashkeel) from a string.
+    This provides a guaranteed fix even if the model ignores the prompt.
+    """
+    if not text:
+        return text
+    arabic_diacritics = re.compile(r'[\u064B-\u065F\u0670]')
+    return re.sub(arabic_diacritics, '', text)
+
 def create_prompt(text, task, source_lang):
-    """Creates a specific prompt for the given task and language, formatted for Gemma-3-1B-IT."""
+    """
+    UPDATED FUNCTION: The prompt is now even stricter to prevent 
+    both diacritics and '?' symbols.
+    """
     if task == 'translate':
         target_lang = "Arabic" if source_lang == "English" else "English"
         
@@ -27,10 +40,13 @@ def create_prompt(text, task, source_lang):
         other_rules = ""
 
         if target_lang == "Arabic":
-            diacritics_rule = "1. **ABSOLUTELY CRITICAL**: Your response must NOT contain any Arabic diacritics (Tashkeel / formations). The output must be plain, simple Arabic text without any vowel markings."
-            other_rules = f"""2. Your response MUST contain ONLY the translated text.
-3. Do NOT add any comments, explanations, or introductory phrases.
-4. **CRITICAL**: You MUST convert every single {source_lang} word and name into the {target_lang} alphabet. Your final output must not contain any {source_lang} characters."""
+            diacritics_rule = """1. **ABSOLUTELY CRITICAL**: Your response MUST NOT contain any Arabic diacritics (Tashkeel / formations). The output must be plain, simple Arabic text.
+   - **Example (Bad)**: "مَرْحَبًا"
+   - **Example (Good)**: "مرحبا"
+2. **CRITICAL**: Do NOT output any question mark `?` characters or any other non-Arabic punctuation unless it is a direct translation of punctuation in the source text."""
+            other_rules = f"""3. Your response MUST contain ONLY the translated text.
+4. Do NOT add any comments, explanations, or introductory phrases.
+5. **CRITICAL**: You MUST convert every single {source_lang} word and name into the {target_lang} alphabet. Your final output must not contain any {source_lang} characters."""
         else:
             other_rules = f"""1. Your response MUST contain ONLY the translated text.
 2. Do NOT add any comments, explanations, or introductory phrases.
@@ -71,6 +87,7 @@ Your entire response must be only the filled-out template.<end_of_turn>
 <start_of_turn>model
 """
     return text
+
 @app.route('/generate', methods=['POST'])
 def generate():
     data = request.get_json()
@@ -96,10 +113,12 @@ def generate():
             for chunk in response.iter_lines():
                 if chunk:
                     decoded_chunk = json.loads(chunk.decode('utf-8'))
-                    # Check if the response part is present and not None
                     if 'response' in decoded_chunk and decoded_chunk['response'] is not None:
-                        yield f"data: {decoded_chunk['response']}\n\n"
-                    # Stop streaming if 'done' is true
+                        
+                        raw_response = decoded_chunk['response']
+                        cleaned_response = remove_diacritics(raw_response)
+                        yield f"data: {cleaned_response}\n\n"
+                        
                     if decoded_chunk.get('done', False):
                         break
             
@@ -116,5 +135,5 @@ def index():
     return render_template('index.html')
 
 if __name__ == '__main__':
-    print("Starting server on http://0.0.0.0:5005")
+    print("Starting server on [http://0.0.0.0:5005](http://0.0.0.0:5005)")
     serve(app, host='0.0.0.0', port=5005, threads=100)
