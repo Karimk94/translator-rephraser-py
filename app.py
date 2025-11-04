@@ -22,6 +22,11 @@ def create_prompt(text, task, source_lang):
     """Creates a specific prompt for the given task and language, formatted for Gemma-3-1B-IT."""
     if task == 'translate':
         target_lang = "Arabic" if source_lang == "English" else "English"
+        
+        diacritics_rule = ""
+        if target_lang == "Arabic":
+            diacritics_rule = "4. **CRITICAL**: Do NOT include any Arabic diacritics (Tashkeel / formations). The output must be plain Arabic text without any vowel markings."
+
         system_message = f"""<start_of_turn>user
 You are a direct translation engine. Your task is to translate the provided {source_lang} text to {target_lang}.
 
@@ -29,6 +34,7 @@ Follow these rules exactly:
 1. Your response MUST contain ONLY the translated text.
 2. Do NOT add any comments, explanations, or introductory phrases.
 3. **CRITICAL**: You MUST convert every single {source_lang} word and name into the {target_lang} alphabet. Your final output must not contain any {source_lang} characters.
+{diacritics_rule}
 
 ### TASK ###
 {source_lang} Text: "{text}"<end_of_turn>
@@ -37,17 +43,22 @@ Follow these rules exactly:
         return system_message
         
     elif task == 'rephrase':
+        tag_lang = "Arabic" if source_lang == "Arabic" else "English"
+        json_key = "arabic_tags" if source_lang == "Arabic" else "english_tags"
+        
         return f"""<start_of_turn>user
 You are a JSON output machine. Your only function is to output a specific JSON structure. Follow these steps exactly:
 
-1.  Analyze this text: "{text}"
+1.  Analyze this {source_lang} text: "{text}"
 2.  Extract the key nouns, entities, and concepts for use as search tags.
-3.  **Correct any spelling errors and standardize abbreviations.**
-4.  Remove all stop words, non-essential words, and duplicate entries.
-5.  Output **NOTHING** except for the completed JSON structure below. Do not use markdown. Do not add ```json. Do not add any other text.
+3.  **All tags MUST be in {tag_lang}.** Do not mix languages.
+4.  **Correct any spelling errors and standardize abbreviations.**
+5.  Remove all stop words, non-essential words, and duplicate entries.
+6.  If generating {tag_lang} tags, do NOT include any diacritics (Tashkeel / formations).
+7.  Output **NOTHING** except for the completed JSON structure below. Do not use markdown. Do not add ```json. Do not add any other text.
 
 COPY AND PASTE THIS TEMPLATE, THEN FILL IT IN:
-{{"english_tags": []}}
+{{"{json_key}": []}}
 
 Your entire response must be only the filled-out template.<end_of_turn>
 <start_of_turn>model
