@@ -18,15 +18,22 @@ def is_arabic(text):
         return False
     return bool(re.search('[\u0600-\u06FF]', text))
 
-def remove_diacritics(text):
+def clean_response(text):
     """
-    NEW FUNCTION: Removes all Arabic diacritics (Tashkeel) from a string.
-    This provides a guaranteed fix even if the model ignores the prompt.
+    NEW FUNCTION: Removes all Arabic diacritics (Tashkeel) AND
+    stray question marks from a string.
+    This provides a guaranteed fix.
     """
     if not text:
         return text
+    
     arabic_diacritics = re.compile(r'[\u064B-\u065F\u0670]')
-    return re.sub(arabic_diacritics, '', text)
+    cleaned_text = re.sub(arabic_diacritics, '', text)
+    
+    cleaned_text = cleaned_text.replace('?', '')
+    
+    return cleaned_text
+
 
 def create_prompt(text, task, source_lang):
     """
@@ -116,7 +123,7 @@ def generate():
                     if 'response' in decoded_chunk and decoded_chunk['response'] is not None:
                         
                         raw_response = decoded_chunk['response']
-                        cleaned_response = remove_diacritics(raw_response)
+                        cleaned_response = clean_response(raw_response)
                         yield f"data: {cleaned_response}\n\n"
                         
                     if decoded_chunk.get('done', False):
